@@ -11,6 +11,14 @@ import pytesseract
 
 app = FastAPI()
 
+@app.get("/")
+def root():
+    return {"ok": True, "service": "heylisa-pdf-ocr"}
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
 def try_text_layer(pdf_path: str) -> str:
     """Extract selectable text if PDF has a text layer."""
     try:
