@@ -1,6 +1,7 @@
 import os
 import tempfile
 import subprocess
+import fitz
 from typing import Optional
 
 from fastapi import FastAPI, UploadFile, File, Form
@@ -34,6 +35,57 @@ def try_text_layer(pdf_path: str) -> str:
         return "\n\n".join(chunks).strip()
     except Exception:
         return ""
+
+def extract_pdf_layout(pdf_path: str) -> dict:
+    """
+    Extract native PDF layout using PyMuPDF.
+    Returns page dimensions + text blocks with coordinates.
+    """
+    doc = fitz.open(pdf_path)
+
+    pages = []
+    full_text_chunks = []
+
+    for page_index, page in enumerate(doc):
+        page_number = page_index + 1
+        rect = page.rect
+
+        blocks = page.get_text("blocks") or []
+        text_blocks = []
+
+        for block_index, block in enumerate(blocks):
+            x0, y0, x1, y1, text, *_ = block
+            clean_text = (text or "").strip()
+
+            if not clean_text:
+                continue
+
+            full_text_chunks.append(clean_text)
+
+            text_blocks.append({
+                "id": f"page_{page_number}_block_{block_index + 1}",
+                "text": clean_text,
+                "x": round(float(x0), 2),
+                "y": round(float(y0), 2),
+                "width": round(float(x1 - x0), 2),
+                "height": round(float(y1 - y0), 2),
+                "page_number": page_number,
+            })
+
+        pages.append({
+            "page_number": page_number,
+            "width": round(float(rect.width), 2),
+            "height": round(float(rect.height), 2),
+            "text_blocks": text_blocks,
+        })
+
+    doc.close()
+
+    return {
+        "page_count": len(pages),
+        "pages": pages,
+        "text": "\n\n".join(full_text_chunks).strip(),
+    }
 
 
 def pdf_to_images(pdf_path: str, out_dir: str) -> list[str]:
@@ -102,14 +154,17 @@ async def extract(
             with open(pdf_path, "wb") as f:
                 f.write(content)
 
-            # 1) Try text layer first
-            text = try_text_layer(pdf_path)
-            if text:
+            # 1) Try native PDF layout first
+            layout = extract_pdf_layout(pdf_path)
+            
+            if layout["text"]:
                 return {
                     "ok": True,
-                    "mode": "text_layer",
+                    "mode": "layout",
                     "file_type": "pdf",
-                    "text": text,
+                    "text": layout["text"],
+                    "pages": layout["pages"],
+                    "page_count": layout["page_count"],
                     "error": None,
                 }
 
