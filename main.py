@@ -39,7 +39,7 @@ def try_text_layer(pdf_path: str) -> str:
 def extract_pdf_layout(pdf_path: str) -> dict:
     """
     Extract native PDF layout using PyMuPDF.
-    Returns page dimensions + text blocks with coordinates.
+    Returns page dimensions + text blocks + text spans with coordinates.
     """
     doc = fitz.open(pdf_path)
 
@@ -72,11 +72,40 @@ def extract_pdf_layout(pdf_path: str) -> dict:
                 "page_number": page_number,
             })
 
+        page_dict = page.get_text("dict") or {}
+        text_spans = []
+        span_index = 0
+
+        for block in page_dict.get("blocks", []):
+            if block.get("type") != 0:
+                continue
+
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    clean_text = (span.get("text") or "").strip()
+
+                    if not clean_text:
+                        continue
+
+                    x0, y0, x1, y1 = span.get("bbox", [0, 0, 0, 0])
+                    span_index += 1
+
+                    text_spans.append({
+                        "id": f"page_{page_number}_span_{span_index}",
+                        "text": clean_text,
+                        "x": round(float(x0), 2),
+                        "y": round(float(y0), 2),
+                        "width": round(float(x1 - x0), 2),
+                        "height": round(float(y1 - y0), 2),
+                        "page_number": page_number,
+                    })
+
         pages.append({
             "page_number": page_number,
             "width": round(float(rect.width), 2),
             "height": round(float(rect.height), 2),
             "text_blocks": text_blocks,
+            "text_spans": text_spans,
         })
 
     doc.close()
