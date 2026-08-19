@@ -9,7 +9,20 @@ from pypdf import PdfReader
 from PIL import Image
 import pytesseract
 
+from document_ocr_v1 import (
+    V1Error,
+    router as v1_router,
+    v1_auth_middleware,
+    v1_error_handler,
+    v1_request_validation_error_handler,
+)
+from fastapi.exceptions import RequestValidationError
+
 app = FastAPI()
+app.add_exception_handler(V1Error, v1_error_handler)
+app.add_exception_handler(RequestValidationError, v1_request_validation_error_handler)
+app.middleware("http")(v1_auth_middleware)
+app.include_router(v1_router)
 
 
 @app.get("/")
