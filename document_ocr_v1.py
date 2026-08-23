@@ -27,7 +27,10 @@ from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from PIL import Image, UnidentifiedImageError
+from pillow_heif import register_heif_opener
 from starlette.concurrency import run_in_threadpool
+
+register_heif_opener(thumbnails=False)
 
 logger = logging.getLogger("document_ocr.v1")
 router = APIRouter()
@@ -62,13 +65,14 @@ UPLOAD_CHUNK_SIZE_BYTES = 1024 * 1024
 PDF_RENDER_DPI = 300
 
 ALLOWED_LANGUAGES = frozenset({"fra", "eng", "fra+eng", "eng+fra"})
-ALLOWED_IMAGE_FORMATS = frozenset({"JPEG", "PNG", "WEBP", "BMP", "TIFF"})
+ALLOWED_IMAGE_FORMATS = frozenset({"JPEG", "PNG", "WEBP", "BMP", "TIFF", "HEIF"})
 IMAGE_FORMAT_TO_MIMES = {
     "JPEG": frozenset({"image/jpeg", "image/jpg"}),
     "PNG": frozenset({"image/png"}),
     "WEBP": frozenset({"image/webp"}),
     "BMP": frozenset({"image/bmp", "image/x-ms-bmp"}),
     "TIFF": frozenset({"image/tiff"}),
+    "HEIF": frozenset({"image/heic", "image/heif"}),
 }
 EXTENSION_CLAIMS = {
     ".pdf": "PDF",
@@ -79,11 +83,9 @@ EXTENSION_CLAIMS = {
     ".bmp": "BMP",
     ".tif": "TIFF",
     ".tiff": "TIFF",
-    ".heic": "HEIC",
-    ".heif": "HEIC",
+    ".heic": "HEIF",
+    ".heif": "HEIF",
 }
-HEIC_MIMES = frozenset({"image/heic", "image/heif"})
-HEIC_BRANDS = frozenset({b"heic", b"heix", b"hevc", b"hevx", b"heim", b"heis"})
 
 
 class V1Error(Exception):
@@ -268,10 +270,6 @@ async def _store_upload(upload: UploadFile, target_path: str) -> int:
     return size_bytes
 
 
-def _looks_like_heic(header: bytes) -> bool:
-    return len(header) >= 12 and header[4:8] == b"ftyp" and header[8:12] in HEIC_BRANDS
-
-
 def _filename_claim(filename: str | None) -> str | None:
     if not filename:
         return None
@@ -382,15 +380,6 @@ def detect_document(
     with open(path, "rb") as source:
         header = source.read(32)
 
-    if _looks_like_heic(header):
-        raise V1Error(
-            415,
-            "UNSUPPORTED_FILE_TYPE",
-            "HEIC and HEIF documents are not supported.",
-            False,
-            stage="validation",
-        )
-
     if header.lstrip().startswith(b"%PDF-"):
         detected = _validate_pdf(path)
     else:
@@ -399,14 +388,6 @@ def detect_document(
         except V1Error as exc:
             if exc.error_code != "INVALID_DOCUMENT":
                 raise
-            if declared_mime in HEIC_MIMES or _filename_claim(original_filename) == "HEIC":
-                raise V1Error(
-                    415,
-                    "UNSUPPORTED_FILE_TYPE",
-                    "HEIC and HEIF documents are not supported.",
-                    False,
-                    stage="validation",
-                ) from None
             if _claimed_supported_type(declared_mime, original_filename):
                 raise
             raise V1Error(

@@ -3,5 +3,6 @@ uvicorn[standard]==0.52.4
 python-multipart==0.0.32
 pytesseract==0.3.13
 Pillow==12.3.0
+pillow-heif==1.5.0
 pypdf==6.16.1
 PyMuPDF==1.28.2

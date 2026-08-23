@@ -15,9 +15,10 @@ to `fra`, `eng`, `fra+eng`, or `eng+fra`. It requires
 `Authorization: Bearer <token>` and fails closed when
 `DOCUMENT_OCR_SERVICE_TOKEN` is absent.
 
-The v1 route accepts valid PDF, JPEG, PNG, WEBP, BMP, and TIFF content. The
+The v1 route accepts valid PDF, JPEG, PNG, WEBP, BMP, TIFF, and HEIC/HEIF content. The
 actual bytes are validated with PyMuPDF or Pillow; the multipart MIME and
-filename extension are only consistency claims. HEIC/HEIF is not supported.
+filename extension are only consistency claims. HEIC/HEIF is decoded in memory
+through `pillow-heif`, then normalized to RGB for the existing Tesseract path.
 
 Success responses contain `ok`, `mode`, `file_type`, `text`, `pages`,
 `page_count`, `warnings`, `engine`, `engine_version`, and `duration_ms`. OCR

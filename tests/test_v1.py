@@ -47,6 +47,22 @@ def image_bytes(format_name: str) -> bytes:
     return output.getvalue()
 
 
+def heic_bytes(*, frames: int = 1, size: tuple[int, int] = (48, 32)) -> bytes:
+    output = io.BytesIO()
+    images = [Image.new("RGB", size, "white") for _ in range(frames)]
+    try:
+        images[0].save(
+            output,
+            format="HEIF",
+            save_all=frames > 1,
+            append_images=images[1:],
+        )
+        return output.getvalue()
+    finally:
+        for image in images:
+            image.close()
+
+
 def upload(
     client: TestClient,
     content: bytes,
@@ -289,14 +305,60 @@ def test_unsupported_type_is_415(client: TestClient) -> None:
     assert_error(response, 415, "UNSUPPORTED_FILE_TYPE", False)
 
 
-def test_heic_is_refused_cleanly(client: TestClient) -> None:
+def test_heic_is_decoded_and_uses_the_existing_ocr_path(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        v1,
+        "ocr_image_document",
+        lambda _path, _lang: [{"page_number": 1, "mode": "ocr", "text": "HEIC read"}],
+    )
+    monkeypatch.setattr(v1, "tesseract_version", lambda: "test-version")
     response = upload(
         client,
-        b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00synthetic",
+        heic_bytes(),
         filename="photo.heic",
         mime="image/heic",
     )
-    assert_error(response, 415, "UNSUPPORTED_FILE_TYPE", False)
+    assert response.status_code == 200
+    assert response.json()["file_type"] == "image"
+    assert response.json()["text"] == "HEIC read"
+
+
+def test_corrupt_heic_is_invalid_document(client: TestClient) -> None:
+    response = upload(
+        client,
+        b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00corrupt",
+        filename="photo.heic",
+        mime="image/heic",
+    )
+    assert_error(response, 422, "INVALID_DOCUMENT", False)
+
+
+def test_heic_pixel_limit_is_enforced_after_decode(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(v1, "MAX_IMAGE_PIXELS", 100)
+    response = upload(
+        client,
+        heic_bytes(size=(20, 20)),
+        filename="photo.heic",
+        mime="image/heic",
+    )
+    assert_error(response, 413, "IMAGE_PIXEL_LIMIT_EXCEEDED", False)
+
+
+def test_heic_frame_limit_is_enforced(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(v1, "MAX_IMAGE_FRAMES", 1)
+    response = upload(
+        client,
+        heic_bytes(frames=2),
+        filename="burst.heic",
+        mime="image/heic",
+    )
+    assert_error(response, 413, "IMAGE_FRAME_LIMIT_EXCEEDED", False)
 
 
 def test_false_mime_is_rejected(client: TestClient) -> None:
